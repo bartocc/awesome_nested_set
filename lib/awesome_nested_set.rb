@@ -35,8 +35,6 @@ module CollectiveIdea #:nodoc:
         #   method. If set to :delete_all (default), all the child objects are deleted
         #   without calling their destroy method.
         #
-        #   TODO JH add dependent=>:promote_children option where child nodes aren't deleted with parent 
-        #
         # See CollectiveIdea::Acts::NestedSet::ClassMethods for a list of class methods and
         # CollectiveIdea::Acts::NestedSet::InstanceMethods for a list of instance methods added 
         # to acts_as_nested_set models
@@ -339,9 +337,6 @@ module CollectiveIdea #:nodoc:
         # Returns a set of itself and all of its nested children
         def self_and_descendants
           nested_set_scope.where(["#{self.class.quoted_table_name}.#{quoted_left_column_name} >= ? AND #{self.class.quoted_table_name}.#{quoted_right_column_name} <= ?", left, right])
-#          nested_set_scope.scoped :conditions => [
-#            "#{self.class.quoted_table_name}.#{quoted_left_column_name} >= ? AND #{self.class.quoted_table_name}.#{quoted_right_column_name} <= ?", left, right
-#          ]
         end
 
         # Returns a set of all of its children and nested children
