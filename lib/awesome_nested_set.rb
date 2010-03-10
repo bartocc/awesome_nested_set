@@ -10,12 +10,12 @@ module CollectiveIdea #:nodoc:
       # descendants with a single query. The drawback is that insertion or move need some complex
       # sql queries. But everything is done here by this module!
       #
-      # Nested sets are appropriate each time you want either an orderd tree (menus,
+      # Nested sets are appropriate each time you want either an ordered tree (menus,
       # commercial categories) or an efficient way of querying big trees (threaded posts).
       #
       # == API
       #
-      # Methods names are aligned with acts_as_tree as much as possible to make replacment from one
+      # Methods names are aligned with acts_as_tree as much as possible to make replacement from one
       # by another easier.
       #
       #   item.children.create(:name => "child1")
@@ -34,6 +34,8 @@ module CollectiveIdea #:nodoc:
         #   child objects are destroyed alongside this object by calling their destroy
         #   method. If set to :delete_all (default), all the child objects are deleted
         #   without calling their destroy method.
+        #
+        #   TODO JH add dependent=>:promote_children option where child nodes aren't deleted with parent 
         #
         # See CollectiveIdea::Acts::NestedSet::ClassMethods for a list of class methods and
         # CollectiveIdea::Acts::NestedSet::InstanceMethods for a list of instance methods added 
@@ -61,9 +63,11 @@ module CollectiveIdea #:nodoc:
             extend ClassMethods
             
             belongs_to :parent, :class_name => self.base_class.to_s,
-              :foreign_key => parent_column_name
+                                :foreign_key => parent_column_name
+
             has_many :children, :class_name => self.base_class.to_s,
-              :foreign_key => parent_column_name, :order => quoted_left_column_name
+                                :foreign_key => parent_column_name,
+                                :order => quoted_left_column_name 
 
             attr_accessor :skip_before_destroy
           
@@ -86,8 +90,8 @@ module CollectiveIdea #:nodoc:
               end_eval
             end
           
-            named_scope :roots, :conditions => {parent_column_name => nil}, :order => quoted_left_column_name
-            named_scope :leaves, :conditions => "#{quoted_right_column_name} - #{quoted_left_column_name} = 1", :order => quoted_left_column_name
+            scope :roots, where(parent_column_name => nil).order(quoted_left_column_name)
+            scope :leaves, where("#{quoted_right_column_name} - #{quoted_left_column_name} = 1").order(quoted_left_column_name)
 
             define_callbacks("before_move", "after_move")
           end
@@ -100,7 +104,7 @@ module CollectiveIdea #:nodoc:
         
         # Returns the first root
         def root
-          roots.find(:first)
+          roots.first
         end
         
         def valid?
@@ -201,7 +205,7 @@ module CollectiveIdea #:nodoc:
           path = [nil]
           objects.each do |o|
             if o.parent_id != path.last
-              # we are on a new level, did we decent or ascent?
+              # we are on a new level, did we descend or ascend?
               if path.include?(o.parent_id)
                 # remove wrong wrong tailing paths elements
                 path.pop while path.last != o.parent_id
@@ -298,14 +302,12 @@ module CollectiveIdea #:nodoc:
 
         # Returns root
         def root
-          self_and_ancestors.find(:first)
+          self_and_ancestors.first
         end
 
         # Returns the array of all parents and self
         def self_and_ancestors
-          nested_set_scope.scoped :conditions => [
-            "#{self.class.quoted_table_name}.#{quoted_left_column_name} <= ? AND #{self.class.quoted_table_name}.#{quoted_right_column_name} >= ?", left, right
-          ]
+          nested_set_scope.where(["#{self.class.quoted_table_name}.#{quoted_left_column_name} <= ? AND #{self.class.quoted_table_name}.#{quoted_right_column_name} >= ?", left, right])
         end
 
         # Returns an array of all parents
@@ -315,7 +317,7 @@ module CollectiveIdea #:nodoc:
 
         # Returns the array of all children of the parent, including self
         def self_and_siblings
-          nested_set_scope.scoped :conditions => {parent_column_name => parent_id}
+          nested_set_scope.where({parent_column_name => parent_id})
         end
 
         # Returns the array of all children of the parent, except self
@@ -325,7 +327,7 @@ module CollectiveIdea #:nodoc:
 
         # Returns a set of all of its nested children which do not have children  
         def leaves
-          descendants.scoped :conditions => "#{self.class.quoted_table_name}.#{quoted_right_column_name} - #{self.class.quoted_table_name}.#{quoted_left_column_name} = 1"
+          descendants.where("#{self.class.quoted_table_name}.#{quoted_right_column_name} - #{self.class.quoted_table_name}.#{quoted_left_column_name} = 1")
         end    
 
         # Returns the level of this object in the tree
@@ -336,9 +338,10 @@ module CollectiveIdea #:nodoc:
 
         # Returns a set of itself and all of its nested children
         def self_and_descendants
-          nested_set_scope.scoped :conditions => [
-            "#{self.class.quoted_table_name}.#{quoted_left_column_name} >= ? AND #{self.class.quoted_table_name}.#{quoted_right_column_name} <= ?", left, right
-          ]
+          nested_set_scope.where(["#{self.class.quoted_table_name}.#{quoted_left_column_name} >= ? AND #{self.class.quoted_table_name}.#{quoted_right_column_name} <= ?", left, right])
+#          nested_set_scope.scoped :conditions => [
+#            "#{self.class.quoted_table_name}.#{quoted_left_column_name} >= ? AND #{self.class.quoted_table_name}.#{quoted_right_column_name} <= ?", left, right
+#          ]
         end
 
         # Returns a set of all of its children and nested children
@@ -427,19 +430,17 @@ module CollectiveIdea #:nodoc:
       protected
       
         def without_self(scope)
-          scope.scoped :conditions => ["#{self.class.quoted_table_name}.#{self.class.primary_key} != ?", self]
+          scope.where(["#{self.class.quoted_table_name}.#{self.class.primary_key} != ?", self])
         end
         
         # All nested set queries should use this nested_set_scope, which performs finds on
-        # the base ActiveRecord class, using the :scope declared in the acts_as_nested_set
-        # declaration.
+        # the base ActiveRecord class using the :scope(s) declared in the
+        # acts_as_nested_set declaration.
         def nested_set_scope
-          options = {:order => quoted_left_column_name}
-          scopes = Array(acts_as_nested_set_options[:scope])
-          options[:conditions] = scopes.inject({}) do |conditions,attr|
-            conditions.merge attr => self[attr]
-          end unless scopes.empty?
-          self.class.base_class.scoped options
+          scopes_hash = scope_column_names.inject({}) do |scopes,attribute|
+            scopes.merge(attribute => self[attribute])
+          end unless scope_column_names.empty?
+          self.class.base_class.where(scopes_hash).order(quoted_left_column_name)
         end
         
         def store_new_parent
@@ -547,7 +548,7 @@ module CollectiveIdea #:nodoc:
               else          target[parent_column_name]
             end
 
-            self.class.base_class.update_all([
+            nested_set_scope.update_all([
               "#{quoted_left_column_name} = CASE " +
                 "WHEN #{quoted_left_column_name} BETWEEN :a AND :b " +
                   "THEN #{quoted_left_column_name} + :d - :b " +
@@ -564,7 +565,7 @@ module CollectiveIdea #:nodoc:
                 "WHEN #{self.class.base_class.primary_key} = :id THEN :new_parent " +
                 "ELSE #{quoted_parent_column_name} END",
               {:a => a, :b => b, :c => c, :d => d, :id => self.id, :new_parent => new_parent}
-            ], nested_set_scope.proxy_options[:conditions])
+            ])
           end
           target.reload_nested_set if target
           self.reload_nested_set
