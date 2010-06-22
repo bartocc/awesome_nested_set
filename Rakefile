@@ -22,6 +22,7 @@ Jeweler::Tasks.new do |s|
   s.extra_rdoc_files = [ "README.rdoc"]
   s.rdoc_options = ["--main", "README.rdoc", "--inline-source", "--line-numbers"]
   s.test_files = Dir['test/**/*.{yml,rb}']
+  s.version = File.read(File.join(File.dirname(__FILE__), "VERSION"))
 end
  Jeweler::GemcutterTasks.new
  
